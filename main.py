@@ -6,7 +6,7 @@ import numpy as np
 import threading
 from threading import Thread
 import time
-from typing import Tuple, Dict, List, Literal
+from typing import Tuple, Dict, List, Literal, Any
 
 pinch: float = 0.0 # 0.0 = open, 0.5 <= pinch
 
@@ -41,7 +41,7 @@ HUD_ITEMS: Dict[str, List[Tuple[int, int]]] = {
     "three_lines": [((15, 20), (50, 40)), False], # coords, highlighted?
     "selector": [((10, 60), (40, 100)), False],
     "rectangle": [((10, 120), (40, 160)), False],
-    "circle": [((10, 180), (40, 220)), False],
+    "circle": [((10, 180), (50, 220)), False],
     "line": [((10, 240), (40, 280)), False],
 }
 def draw_hud(frame: cv2.typing.MatLike) -> cv2.typing.MatLike:
@@ -176,17 +176,41 @@ def action_on_pinch(frame: cv2.typing.MatLike) -> None:
                 TOOL = hud_name
                 CANVAS_OPEN = False
 
+CANVAS: List[Dict[str, Any]] = []
 def action_off_pinch(frame: cv2.typing.MatLike) -> None:
-    global CANVAS_OPEN, DRAWING, TOOL, INIT_PINCH_COORD, results
+    global CANVAS_OPEN, DRAWING, TOOL, INIT_PINCH_COORD, results, CANVAS
 
     if not results or not results.multi_hand_landmarks: return None
     if is_pinched(): return None
 
+    index_tip = results.multi_hand_landmarks[0].landmark[8]
+
     if not CANVAS_OPEN:
         if DRAWING:
             if INIT_PINCH_COORD:
+                # save canvas object
+                object = {
+                    "type": TOOL,
+                    "top_left_coord": INIT_PINCH_COORD,
+                    "bottom_right_coord": pixelize_coords(index_tip.x, index_tip.y)
+                }
+                CANVAS.append(object)
+
                 INIT_PINCH_COORD = ()
 
+def draw_canvas_objects(frame: cv2.typing.MatLike) -> None:
+    global CANVAS
+    for object in CANVAS:
+        if object["type"] == "rectangle":
+            cv2.rectangle(frame, object["top_left_coord"], object["bottom_right_coord"], (200, 0, 0), 2)
+        elif object["type"] == "circle":
+            ix, iy = object["top_left_coord"]
+            cx, cy = object["bottom_right_coord"]
+            cv2.circle(frame, ((cx+ix)//2, (cy+iy)//2), abs(cx-ix)//2, (200, 0, 0), 2)
+        elif object["type"] == "line":
+            cv2.line(frame, object["top_left_coord"], object["bottom_right_coord"], (200, 0, 0), 2)
+    
+    
 
 # Initialize MediaPipe Hands
 mp_hands = mp.solutions.hands
@@ -235,6 +259,8 @@ while cap.isOpened():
     frame = highlight_hud(frame)
     action_on_pinch(frame)
     action_off_pinch(frame)
+
+    draw_canvas_objects(frame)
     cv2.imshow("MediaPipe Hands", frame)
 
     # Press 'q' to exit
