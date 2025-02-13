@@ -16,6 +16,7 @@ pinch_dist: float = 0.0
 CANVAS_OPEN: bool = False
 TOOL: Literal["selector", "rectangle", "circle", "line"] = "" # selector, rectangle, circle, line
 DRAWING: bool = False
+INIT_PINCH_COORD: Tuple[int] = ()
 
 def pixelize_coords(x: float, y: float) -> Tuple[int]:
     h, w, _ = frame.shape
@@ -38,10 +39,10 @@ def is_finger_within_box(finger_point: NormalizedLandmark, top_left_coord: Tuple
 
 HUD_ITEMS: Dict[str, List[Tuple[int, int]]] = {
     "three_lines": [((15, 20), (50, 40)), False], # coords, highlighted?
-    "selector": [((10, 10), (40, 50)), False],
-    "rectangle": [((50, 10), (90, 50)), False],
-    "circle": [((110, 10), (150, 50)), False],
-    "line": [((160, 10), (200, 50)), False],
+    "selector": [((10, 60), (40, 100)), False],
+    "rectangle": [((10, 120), (40, 160)), False],
+    "circle": [((10, 180), (40, 220)), False],
+    "line": [((10, 240), (40, 280)), False],
 }
 def draw_hud(frame: cv2.typing.MatLike) -> cv2.typing.MatLike:
     if not CANVAS_OPEN:
@@ -51,18 +52,18 @@ def draw_hud(frame: cv2.typing.MatLike) -> cv2.typing.MatLike:
         return frame
 
     # selector
-    pts = np.array([[10, 10], [10, 50], [20, 40], [38, 43]], np.int32)
+    pts = np.array([[10, 60], [10, 100], [20, 90], [38, 93]], np.int32)
     pts = pts.reshape((-1, 1, 2))
     cv2.polylines(frame, [pts], isClosed=True, color=(0, 0, 0), thickness=2)
 
     # rectangle
-    cv2.rectangle(frame, (52, 12), (88, 48), (0, 0, 0), 2, cv2.LINE_AA)
+    cv2.rectangle(frame, (12, 122), (38, 158), (0, 0, 0), 2, cv2.LINE_AA)
 
     # circle
-    cv2.circle(frame, (130, 30), 20, (0, 0, 0), 2, cv2.LINE_AA)
+    cv2.circle(frame, (30, 200), 20, (0, 0, 0), 2, cv2.LINE_AA)
 
     # line
-    cv2.line(frame, (162, 12), (198, 48), (0, 0, 0), thickness=2)
+    cv2.line(frame, (12, 242), (38, 278), (0, 0, 0), thickness=2)
 
     return frame
 
@@ -117,7 +118,7 @@ def record_pinch() -> None:
     else:
         print("Hand not found!")
 
-def check_pinch() -> bool:
+def is_pinched() -> bool:
     global results, pinch
     hand_landmarks = results.multi_hand_landmarks[0]
     thumb_tip, index_tip = hand_landmarks.landmark[4], hand_landmarks.landmark[8]
@@ -130,19 +131,43 @@ def check_pinch() -> bool:
     else: return True
 
 def action_on_pinch(frame: cv2.typing.MatLike) -> None:
-    global CANVAS_OPEN, DRAWING, TOOL, results
+    global CANVAS_OPEN, DRAWING, TOOL, INIT_PINCH_COORD, results
 
     if not results or not results.multi_hand_landmarks: return None
-    if not check_pinch(): return None
+    if not is_pinched(): return None
 
     index_tip = results.multi_hand_landmarks[0].landmark[8]
 
     # Three Lines
     if not CANVAS_OPEN:
+        if DRAWING:
+            if TOOL == "selector": ...
+            elif TOOL == "rectangle": 
+                if not INIT_PINCH_COORD:
+                    INIT_PINCH_COORD = pixelize_coords(index_tip.x, index_tip.y)
+                else:
+                    cv2.rectangle(frame, INIT_PINCH_COORD, pixelize_coords(index_tip.x, index_tip.y), (200, 0, 0), 2)
+
+            elif TOOL == "circle": 
+                if not INIT_PINCH_COORD:
+                    INIT_PINCH_COORD = pixelize_coords(index_tip.x, index_tip.y)
+                else:
+                    ix, iy = INIT_PINCH_COORD
+                    cx, cy = pixelize_coords(index_tip.x, index_tip.y)
+                    cv2.circle(frame, ((cx+ix)//2, (cy+iy)//2), abs(cx-ix)//2, (200, 0, 0), 2)
+
+            elif TOOL == "line": 
+                if not INIT_PINCH_COORD:
+                    INIT_PINCH_COORD = pixelize_coords(index_tip.x, index_tip.y)
+                else:
+                    cv2.line(frame, INIT_PINCH_COORD, pixelize_coords(index_tip.x, index_tip.y), (200, 0, 0), 2)
+        
         if is_finger_within_box(index_tip, HUD_ITEMS["three_lines"][0][0], HUD_ITEMS["three_lines"][0][1]):
             CANVAS_OPEN = True
             DRAWING = False
             TOOL = ""
+            INIT_PINCH_COORD = ()
+
     elif CANVAS_OPEN and not DRAWING:
         for hud_name, item in HUD_ITEMS.items():
             if hud_name == "three_lines": continue
@@ -150,13 +175,18 @@ def action_on_pinch(frame: cv2.typing.MatLike) -> None:
                 DRAWING = True
                 TOOL = hud_name
                 CANVAS_OPEN = False
-    
-    elif DRAWING:
-        if TOOL == "selector": ...
-        elif TOOL == "rectangle": ...
 
-        elif TOOL == "circle": ...
-        elif TOOL == "line": ...
+def action_off_pinch(frame: cv2.typing.MatLike) -> None:
+    global CANVAS_OPEN, DRAWING, TOOL, INIT_PINCH_COORD, results
+
+    if not results or not results.multi_hand_landmarks: return None
+    if is_pinched(): return None
+
+    if not CANVAS_OPEN:
+        if DRAWING:
+            if INIT_PINCH_COORD:
+                INIT_PINCH_COORD = ()
+
 
 # Initialize MediaPipe Hands
 mp_hands = mp.solutions.hands
@@ -187,9 +217,10 @@ while cap.isOpened():
             
             if not PINCH_RECORDED and threading.active_count() <= 1:
                 Thread(target=record_pinch).start()
-            elif PINCH_RECORDED: check_pinch()
+            elif PINCH_RECORDED: is_pinched()
 
-            cv2.line(frame, pixelize_coords(hand_landmarks.landmark[4].x, hand_landmarks.landmark[4].y), pixelize_coords(hand_landmarks.landmark[8].x, hand_landmarks.landmark[8].y), (0, 255, 0), 6)
+            if TOOL == "": cv2.line(frame, pixelize_coords(hand_landmarks.landmark[4].x, hand_landmarks.landmark[4].y), pixelize_coords(hand_landmarks.landmark[8].x, hand_landmarks.landmark[8].y), (0, 255, 0), 6)
+            else: cv2.line(frame, pixelize_coords(hand_landmarks.landmark[4].x, hand_landmarks.landmark[4].y), pixelize_coords(hand_landmarks.landmark[8].x, hand_landmarks.landmark[8].y), (255, 0, 0), 2)
             # Draw hand landmarks on the frame
             mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
@@ -203,6 +234,7 @@ while cap.isOpened():
     frame = draw_hud(frame)
     frame = highlight_hud(frame)
     action_on_pinch(frame)
+    action_off_pinch(frame)
     cv2.imshow("MediaPipe Hands", frame)
 
     # Press 'q' to exit
