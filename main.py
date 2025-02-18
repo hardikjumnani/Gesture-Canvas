@@ -14,7 +14,7 @@ PINCH_RECORDED: bool = False
 pinch_dist: float = 0.0
 
 CANVAS_OPEN: bool = False
-TOOL: Literal["selector", "rectangle", "circle", "line"] = "" # selector, rectangle, circle, line
+TOOL: Literal["selector", "rectangle", "circle", "line", "heart"] = "" # selector, rectangle, circle, line, heart
 DRAWING: bool = False
 INIT_PINCH_COORD: Tuple[int] = ()
 
@@ -37,12 +37,52 @@ def is_finger_within_box(finger_point: NormalizedLandmark, top_left_coord: Tuple
     else:
         return False
 
+def lerper(min, max): 
+    def lerp(norm):
+        return (max - min) * norm + min
+    return lerp
+
+def draw_heart(frame, top_left_coord: Tuple[int], bottom_right_coord: Tuple[int], color: Tuple[int], thickness: int):
+    
+    min_x, min_y = top_left_coord
+    max_x, max_y = bottom_right_coord
+    lerp_x = lerper(min_x, max_x)
+    lerp_y = lerper(min_y, max_y)
+
+    # Bezier Curve Points
+    p0 = (lerp_x(0.5), lerp_y(1))
+    p1 = (lerp_x(0), lerp_y(0.52))
+    p2 = (lerp_x(0.125), lerp_y(0))
+    p3 = (lerp_x(0.5), lerp_y(0.28))
+    p4 = (lerp_x(0.875), lerp_y(0))
+    p5 = (lerp_x(1), lerp_y(0.52))
+
+    # Left Curve
+    t = 0.0
+    while t < 1:
+        pX = (1-t)**3 * p0[0] + 3 * (1-t)**2 * t * p1[0] + 3 * (1-t) * t**2 * p2[0] + t**3 * p3[0]
+        pY = (1-t)**3 * p0[1] + 3 * (1-t)**2 * t * p1[1] + 3 * (1-t) * t**2 * p2[1] + t**3 * p3[1]
+        cv2.circle(frame, (int(pX), int(pY)), 1, color, thickness)
+
+        t += 0.005
+
+    # Right Curve
+    t = 0.0
+    while t < 1:
+        pX = (1-t)**3 * p0[0] + 3 * (1-t)**2 * t * p5[0] + 3 * (1-t) * t**2 * p4[0] + t**3 * p3[0]
+        pY = (1-t)**3 * p0[1] + 3 * (1-t)**2 * t * p5[1] + 3 * (1-t) * t**2 * p4[1] + t**3 * p3[1]
+        cv2.circle(frame, (int(pX), int(pY)), 1, color, thickness)
+
+        t += 0.005
+
+
 HUD_ITEMS: Dict[str, List[Tuple[int, int]]] = {
     "three_lines": [((15, 20), (50, 40)), False], # coords, highlighted?
     "selector": [((10, 60), (40, 100)), False],
     "rectangle": [((10, 120), (40, 160)), False],
     "circle": [((10, 180), (50, 220)), False],
     "line": [((10, 240), (40, 280)), False],
+    "heart": [((10, 300), (50, 340)), False],
 }
 def draw_hud(frame: cv2.typing.MatLike) -> cv2.typing.MatLike:
     if not CANVAS_OPEN:
@@ -64,6 +104,9 @@ def draw_hud(frame: cv2.typing.MatLike) -> cv2.typing.MatLike:
 
     # line
     cv2.line(frame, (12, 242), (38, 278), (0, 0, 0), thickness=2)
+
+    # heart
+    draw_heart(frame, (8, 298), (52, 342), (0, 0, 0), 1)
 
     return frame
 
@@ -137,6 +180,7 @@ def action_on_pinch(frame: cv2.typing.MatLike) -> None:
     if not is_pinched(): return None
 
     index_tip = results.multi_hand_landmarks[0].landmark[8]
+    curr_finger_coord: Tuple[int] = pixelize_coords(index_tip.x, index_tip.y)
 
     # Three Lines
     if not CANVAS_OPEN:
@@ -144,23 +188,29 @@ def action_on_pinch(frame: cv2.typing.MatLike) -> None:
             if TOOL == "selector": ...
             elif TOOL == "rectangle": 
                 if not INIT_PINCH_COORD:
-                    INIT_PINCH_COORD = pixelize_coords(index_tip.x, index_tip.y)
+                    INIT_PINCH_COORD = curr_finger_coord
                 else:
-                    cv2.rectangle(frame, INIT_PINCH_COORD, pixelize_coords(index_tip.x, index_tip.y), (200, 0, 0), 2)
+                    cv2.rectangle(frame, INIT_PINCH_COORD, curr_finger_coord, (200, 0, 0), 2)
 
             elif TOOL == "circle": 
                 if not INIT_PINCH_COORD:
-                    INIT_PINCH_COORD = pixelize_coords(index_tip.x, index_tip.y)
+                    INIT_PINCH_COORD = curr_finger_coord
                 else:
                     ix, iy = INIT_PINCH_COORD
-                    cx, cy = pixelize_coords(index_tip.x, index_tip.y)
+                    cx, cy = curr_finger_coord
                     cv2.circle(frame, ((cx+ix)//2, (cy+iy)//2), abs(cx-ix)//2, (200, 0, 0), 2)
 
             elif TOOL == "line": 
                 if not INIT_PINCH_COORD:
-                    INIT_PINCH_COORD = pixelize_coords(index_tip.x, index_tip.y)
+                    INIT_PINCH_COORD = curr_finger_coord
                 else:
-                    cv2.line(frame, INIT_PINCH_COORD, pixelize_coords(index_tip.x, index_tip.y), (200, 0, 0), 2)
+                    cv2.line(frame, INIT_PINCH_COORD, curr_finger_coord, (200, 0, 0), 2)
+            
+            elif TOOL == "heart":
+                if not INIT_PINCH_COORD:
+                    INIT_PINCH_COORD = curr_finger_coord
+                else:
+                    draw_heart(frame, INIT_PINCH_COORD, curr_finger_coord, (228, 12, 204), 1)
         
         if is_finger_within_box(index_tip, HUD_ITEMS["three_lines"][0][0], HUD_ITEMS["three_lines"][0][1]):
             CANVAS_OPEN = True
@@ -209,6 +259,8 @@ def draw_canvas_objects(frame: cv2.typing.MatLike) -> None:
             cv2.circle(frame, ((cx+ix)//2, (cy+iy)//2), abs(cx-ix)//2, (200, 0, 0), 2)
         elif object["type"] == "line":
             cv2.line(frame, object["top_left_coord"], object["bottom_right_coord"], (200, 0, 0), 2)
+        elif object["type"] == "heart":
+            draw_heart(frame, object["top_left_coord"], object["bottom_right_coord"], (228, 12, 204), 1)
     
     
 
