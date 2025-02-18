@@ -298,7 +298,7 @@ while cap.isOpened():
             if TOOL == "": cv2.line(frame, pixelize_coords(hand_landmarks.landmark[4].x, hand_landmarks.landmark[4].y), pixelize_coords(hand_landmarks.landmark[8].x, hand_landmarks.landmark[8].y), (0, 255, 0), 6)
             else: cv2.line(frame, pixelize_coords(hand_landmarks.landmark[4].x, hand_landmarks.landmark[4].y), pixelize_coords(hand_landmarks.landmark[8].x, hand_landmarks.landmark[8].y), (255, 0, 0), 2)
             # Draw hand landmarks on the frame
-            mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+            # mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
             for landmark in [hand_landmarks.landmark[4], hand_landmarks.landmark[8]]:
                 x, y, z = landmark.x, landmark.y, landmark.z  # Access coordinates
@@ -315,9 +315,13 @@ while cap.isOpened():
     draw_canvas_objects(frame)
     cv2.imshow("MediaPipe Hands", frame)
 
+    key = cv2.waitKey(1) & 0xFF
     # Press 'q' to exit
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    if key == ord('q'):
         break
+    # Press 'z' to undo a shape
+    elif key == ord('z'):
+        CANVAS.pop()
 
 # Cleanup
 cap.release()
